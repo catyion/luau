@@ -26,6 +26,7 @@
 
 LUAU_FASTFLAG(LuauCyclicRequireTypeInference)
 LUAU_FASTFLAG(LuauUdtfErrorHandling)
+LUAU_FASTFLAG(LuauNextReadOnlyIndexer)
 
 /** FIXME: Many of these type definitions are not quite completely accurate.
  *
@@ -403,13 +404,21 @@ void registerBuiltinGlobals(Frontend& frontend, GlobalTypes& globals, bool typeC
     }
 
     // next<K, V>(t: Table<K, V>, i: K?) -> (K?, V)
-    TypePackId nextArgsTypePack = arena.addTypePack(TypePack{{mapOfKtoV, makeOption(builtinTypes, arena, genericK)}});
+    TypePackId mutableNextArgsTypePack = arena.addTypePack(TypePack{{mapOfKtoV, makeOption(builtinTypes, arena, genericK)}});
+    TypePackId nextArgsTypePack = mutableNextArgsTypePack;
+    
+    if (FFlag::LuauNextReadOnlyIndexer && frontend.getLuauSolverMode() == SolverMode::New)
+    {
+        TypeId readOnlyMapOfKtoV = arena.addType(TableType{{}, TableIndexer(genericK, genericV, /* isReadOnly */ true), globals.globalScope->level, TableState::Generic});
+        nextArgsTypePack = arena.addTypePack(TypePack{{readOnlyMapOfKtoV, makeOption(builtinTypes, arena, genericK)}});
+    }
+    
     TypePackId nextRetsTypePack = arena.addTypePack(TypePack{{makeOption(builtinTypes, arena, genericK), genericV}});
     addGlobalBinding(globals, "next", arena.addType(FunctionType{{genericK, genericV}, {}, nextArgsTypePack, nextRetsTypePack}), "@luau");
-
+    
     TypePackId pairsArgsTypePack = arena.addTypePack({mapOfKtoV});
-
-    TypeId pairsNext = arena.addType(FunctionType{nextArgsTypePack, nextRetsTypePack});
+    
+    TypeId pairsNext = arena.addType(FunctionType{mutableNextArgsTypePack, nextRetsTypePack});
     TypePackId pairsReturnTypePack = arena.addTypePack(TypePack{{pairsNext, mapOfKtoV, builtinTypes->nilType}});
 
     // pairs<K, V>(t: Table<K, V>) -> ((Table<K, V>, K?) -> (K, V), Table<K, V>, nil)
